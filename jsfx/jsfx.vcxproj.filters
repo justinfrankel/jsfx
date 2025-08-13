@@ -116,5 +116,8 @@
     <Object Include="..\WDL\eel2\asm-nseel-arm64ec.obj">
       <Filter>Source Files\EEL</Filter>
     </Object>
+    <Object Include="..\WDL\eel2\asm-nseel-aarch64-msvc.obj">
+      <Filter>Source Files\EEL</Filter>
+    </Object>
   </ItemGroup>
 </Project>

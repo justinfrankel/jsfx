@@ -265,7 +265,7 @@ int SX_Editor::overrideSyntaxDrawingForLine(int *skipcnt, const char **p, int *c
 }
 
 
-void *SX_Editor::peek_get_VM()
+void *SX_Editor::peek_get_VM(const char *forCode)
 {
   SX_Instance *p = m_parent;
   return p ? p->m_vm : NULL;

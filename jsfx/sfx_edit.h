@@ -31,7 +31,7 @@ class SX_Editor : public EEL_Editor
 
     virtual int is_code_start_line(const char *p);
 
-    virtual void *peek_get_VM();
+    virtual void *peek_get_VM(const char *forCode);
     virtual int peek_get_named_string_value(const char *name, char *sstr, size_t sstr_sz);
     virtual bool peek_get_numbered_string_value(double idx, char *sstr, size_t sstr_sz);
     virtual void peek_lock();

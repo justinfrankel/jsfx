@@ -2093,6 +2093,10 @@ INT_PTR sx_inlineEditor(SX_Instance *sx, int msg, void *p1, void *p2)
       return dr>0 ? 1 : 0;
     }
     return 0;
+    case REAPER_FXEMBED_WM_NOBORDER:
+      return sx->m_gfx_ext_flags && (((int)sx->m_gfx_ext_flags[0]) & 256);
+    case REAPER_FXEMBED_WM_HITTEST:
+      return sx->m_gfx_ext_flags && (((int)sx->m_gfx_ext_flags[0]) & 512);
   }
   return 0;
 }

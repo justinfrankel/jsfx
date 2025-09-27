@@ -1376,6 +1376,10 @@ void SX_Instance::OpenExternal(HWND hwndDlg)
   {
     char path[2048];
     snprintf(path,sizeof(path),"%s" WDL_DIRCHAR_STR "%s",m_effectdir.Get(),m_fn.Get());
+#ifdef _WIN32
+    if (strstr(path," "))
+      snprintf(path,sizeof(path),"\"%s" WDL_DIRCHAR_STR "%s\"",m_effectdir.Get(),m_fn.Get());
+#endif
 
     char exe[1024];
     const char *exep = "";

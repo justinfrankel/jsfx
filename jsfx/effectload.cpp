@@ -1051,9 +1051,11 @@ bool SX_Instance::LoadEffect(const char *fn, int resetFlags, WDL_PtrList<void> *
       slid->slider = new_p;
     }
 
+    bool at_default = false;
     if ((resetFlags & LOADEFFECT_RESETFLAG_SLIDERS) && WDL_NORMALLY(slid->slider != NULL))
     {
       slid->slider[0] = src->def_v;
+      at_default = true;
     }
     slid->default_val = src->def_v;
     slid->range_min = src->range_min;
@@ -1068,6 +1070,13 @@ bool SX_Instance::LoadEffect(const char *fn, int resetFlags, WDL_PtrList<void> *
     {
       slid->is_file_slider=1;
       slid->FileDirectory.Set(src->dir_name.Get());
+      if (at_default && src->def_string.GetLength())
+      {
+        slid->spareString.Set(src->def_string.Get());
+        slid->currentFile = slid->spareString.Get();
+        slid->slider[0] = 0.0;
+        slid->file_dirty = true;
+      }
     }
     else
     {

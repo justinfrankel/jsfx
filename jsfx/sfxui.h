@@ -82,9 +82,10 @@ public:
   WDL_PtrList<char> sliderValueXlateList;
 
   int is_file_slider;
-  const char *currentFile;//cached pointer to FileList[(int)*slider]
+  const char *currentFile;//cached pointer to FileList[(int)*slider] or spareString
   WDL_FastString FileDirectory;
   WDL_PtrList<char> FileList;
+  WDL_FastString spareString;
   bool file_dirty;
 
   struct {

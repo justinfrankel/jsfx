@@ -275,9 +275,13 @@ int fileHandleRec::Open(const char *fn, int iswrite)
   const bool isTextExt = !stricmp(ext,".txt");
   const bool isRawExt = !stricmp(ext,".raw");
 
-  if (!isTextExt && !isRawExt && !iswrite)
+  if (!isTextExt && !isRawExt && !iswrite &&
+      // avoid trying to open xml/mxl/musicxml
+      stricmp(ext,".xml") &&
+      stricmp(ext,".mxl") &&
+      stricmp(ext,".musicxml")
+      )
   {
-
     m_pcm_src = _PCM_Source_CreateFromFile ? _PCM_Source_CreateFromFile(fn) : NULL;
     if (m_pcm_src && m_pcm_src->GetNumChannels()>0 && m_pcm_src->GetSampleRate() > 1.0)
     {

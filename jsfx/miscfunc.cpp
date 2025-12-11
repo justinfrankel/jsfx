@@ -271,9 +271,9 @@ int fileHandleRec::Open(const char *fn, int iswrite)
   delete m_pcm_src;
   m_pcm_src = 0;
 
-  const size_t l=strlen(fn);
-  const bool isTextExt = l > 4 && !stricmp(fn + l - 4, ".txt");
-  const bool isRawExt = l > 4 && !stricmp(fn + l - 4, ".raw");
+  const char *ext = WDL_get_fileext(fn);
+  const bool isTextExt = !stricmp(ext,".txt");
+  const bool isRawExt = !stricmp(ext,".raw");
 
   if (!isTextExt && !isRawExt && !iswrite)
   {

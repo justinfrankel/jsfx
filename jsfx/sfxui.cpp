@@ -743,7 +743,7 @@ void SX_Instance::DoUpdate(HWND hwndDlg)
   HWND lh=NULL;
 
 #ifndef _WIN32
-  SWELL_MakeSetCurParms(1.5,1.5,0,0,hwndDlg,true,false);
+  SWELL_MakeSetCurParms(0.0,0.0,0,0,hwndDlg,true,false);
 #endif
 
 #define DESTROY_CLEAR(x) do { if (x) { DestroyWindow(x); (x)=NULL;  } } while (0)
@@ -971,7 +971,7 @@ void SX_Instance::DoUpdate(HWND hwndDlg)
 
 
 #ifndef _WIN32
-  SWELL_MakeSetCurParms(1.5,1.5,0,0,NULL,true,false);
+  SWELL_MakeSetCurParms(0.0,0.0,0,0,NULL,true,false);
 #endif
   if (m_last_error[0]) SetDlgItemText(hwndDlg,IDC_EFFECTNAME,m_last_error);
 

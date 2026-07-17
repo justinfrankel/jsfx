@@ -448,6 +448,8 @@ class SX_Instance
 
     void exec_init_code(); // executes @init and common imported code
 
+    bool get_param_default_value_normalized(int parmidx, double *v) const;
+
   private:
 
     NSEEL_CODEHANDLE m_sample_ch, m_init_ch, m_slider_ch, m_onblock_ch, m_serialize_ch, m_gfx_ch;

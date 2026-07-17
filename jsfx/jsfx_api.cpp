@@ -95,6 +95,8 @@ INT_PTR sx_extended(SX_Instance *sx, int msg, void *parm1, void *parm2)
         return 0;
       if (parm1) *(double *)parm1 = *sx->m_ext_gr_meter;
     return 1;
+    case JSFX_EXT_GET_DEFVAL:
+      return sx->get_param_default_value_normalized((int)(INT_PTR)parm1, (double*)parm2)?1:0;
   }
   return 0;
 }

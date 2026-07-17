@@ -1574,6 +1574,17 @@ int sx_getNumParms(SX_Instance *sx)
 
   return cnt;
 }
+bool SX_Instance::get_param_default_value_normalized(int parmidx, double *v) const
+{
+  int a=parmToIndex(parmidx);
+  if (a<0) return false;
+
+  effectSlider *slider=m_sliders.Get(a);
+  if (WDL_NOT_NORMALLY(slider == NULL)) return false;
+  if (slider->range_max <= slider->range_min) return false;
+  *v = (slider->default_val - slider->range_min) / (slider->range_max - slider->range_min);
+  return true;
+}
 
 double sx_getParmVal(SX_Instance *sx, int parm, double *minval, double *maxval, double *step)
 {

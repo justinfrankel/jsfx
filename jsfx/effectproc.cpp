@@ -858,7 +858,7 @@ void SX_Instance::gfx_runCode(int flag)
   {
     if (WDL_NORMALLY(m_gfx_ext_flags!=NULL))
     {
-      flag |= ((int) m_gfx_ext_flags[0]) & (256|512); // preserve plug-in set flags
+      flag |= ((int) m_gfx_ext_flags[0]) & (256|512|1024); // preserve plug-in set flags
       m_gfx_ext_flags[0] = (EEL_F) flag;
     }
     NSEEL_code_execute(m_gfx_ch);

@@ -1494,6 +1494,24 @@ static EEL_F NSEEL_CGEN_CALL _get_host_placement(void *ctx, INT_PTR np, EEL_F **
     int rv = fxGetPlacement(p->m_hostctx,&cp,&f);
     if (np > 0) parms[0][0] = cp;
     if (np > 1) parms[1][0] = f;
+    if (np > 2 && parms[2][0] > 0.0)
+    {
+      WDL_FastString *fs=NULL;
+      p->GetStringForIndex(parms[2][0],&fs,true);
+      if (fs)
+      {
+        fs->Set("");
+        if (rv >= 0 && GetCurrentThreadId() == p->m_main_thread && GetTrack && GetProjectFromFxDsp && GetTrackName)
+        {
+          MediaTrack *tr = GetTrack(GetProjectFromFxDsp(p->m_hostctx),rv);
+          if (tr)
+          {
+            char title[1024];
+            if (GetTrackName(tr,title,sizeof(title))) fs->Set(title);
+          }
+        }
+      }
+    }
     return rv;
   }
   return -99.0;

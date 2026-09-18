@@ -549,6 +549,10 @@ extern void (*SetWindowAccessibilityString)(HWND h, const char *, int mode);
 extern void (*Mac_MakeDefaultWindowMenu)(HWND);
 #endif
 
+extern ReaProject *(*GetProjectFromFxDsp)(void *);
+extern MediaTrack *(*GetTrack)(ReaProject *, int idx);
+extern bool (*GetTrackName)(MediaTrack *, char*, int);
+
 extern void (*_NSEEL_HOSTSTUB_EnterMutex)();
 extern void (*_NSEEL_HOSTSTUB_LeaveMutex)();
 extern void ** (*eel_gmem_attach)(const char *nm, bool is_alloc);

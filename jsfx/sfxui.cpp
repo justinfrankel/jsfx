@@ -108,6 +108,10 @@ int (*fxGetSetPinmapperFlags)(void *fxdsp, int *set_flags);
 
 const char *(*get_eel_funcdesc)(const char *);
 
+ReaProject *(*GetProjectFromFxDsp)(void *);
+MediaTrack *(*GetTrack)(ReaProject *, int idx);
+bool (*GetTrackName)(MediaTrack *, char*, int);
+
 PCM_source *(*_PCM_Source_CreateFromFile)(const char *filename);
 bool (*IsMediaExtension)(const char *extparm, bool wantOthers);
 bool (*Plugin_FindNewFileName)(ReaProject *__proj, int trackid, const char *trackname, const char *ext, char *buf, int bufsz);
@@ -245,6 +249,11 @@ void sx_provideAPIFunctionGetter(void *(*getFunc)(const char *name))
   *(void **)&_PCM_Source_CreateFromFile = getFunc("PCM_Source_CreateFromFile");
   *(void **)&IsMediaExtension = getFunc("IsMediaExtension");
   *(void**)&fxSetUndoPoint=getFunc("fxSetUndoPoint");
+
+  *(void **)&GetTrackName = getFunc("GetTrackName");
+  *(void **)&GetProjectFromFxDsp = getFunc("GetProjectFromFxDsp");
+  *(void **)&GetTrack = getFunc("GetTrack");
+
 
   *(void**)&fxGetSetHostNumChan=getFunc("fxGetSetHostNumChan");
   *(void**)&fxGetSetPinMap2=getFunc("fxGetSetPinMap2");

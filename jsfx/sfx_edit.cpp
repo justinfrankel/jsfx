@@ -497,7 +497,7 @@ int SX_Editor::peek_get_token_info(const char *name, char *sstr, size_t sstr_sz,
         "set_pin_mapping\0inout,pin,startchan,chanmask,mapping\0Set the channel mappings for this pin/startchan/chanmask. only valid in @gfx section",
         "get_pinmapper_flags\0(no parameters)\0Get the pinmapper flags for this fx. !&1=pass through unmapped output channels, &1=zero out unmapped output channels",
         "set_pinmapper_flags\0flags\0Set the pinmapper flags for this fx. see get_pinmapper_flags. only valid in @gfx section",
-        "get_host_placement\0chain_pos,flags\0Returns track index, or -1 for master track, or -2 for hardware output FX. chain_pos will be position in chain. flags will have 1 set if takeFX, 2 if record input, 4 if in inactive project, 8 if in container (in this case, chain_pos will be set to the address, see TrackFX_GetParamEx etc).",
+        "get_host_placement\0chain_pos,flags[,track_name]\0Returns track index, or -1 for master track, or -2 for hardware output FX. chain_pos will be position in chain. flags will have 1 set if takeFX, 2 if record input, 4 if in inactive project, 8 if in container (in this case, chain_pos will be set to the address, see TrackFX_GetParamEx etc). If track_name specified and positive, and in @gfx/@serialize/main thread contexts, track_name will be set to the track name.",
       };
       int x;
       for (x=0;x<sizeof(doclist)/sizeof(doclist[0]);x++)

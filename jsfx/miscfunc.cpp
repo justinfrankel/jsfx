@@ -1494,7 +1494,7 @@ static EEL_F NSEEL_CGEN_CALL _get_host_placement(void *ctx, INT_PTR np, EEL_F **
     int rv = fxGetPlacement(p->m_hostctx,&cp,&f);
     if (np > 0) parms[0][0] = cp;
     if (np > 1) parms[1][0] = f;
-    if (np > 2 && parms[2][0] > 0.0)
+    if (np > 2)
     {
       WDL_FastString *fs=NULL;
       p->GetStringForIndex(parms[2][0],&fs,true);

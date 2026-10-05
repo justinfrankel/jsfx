@@ -1741,7 +1741,7 @@ EEL_F *sx_effect_var_resolver(void *userctx, const char *name)
 }
 
 int g_last_srate;
-SX_Instance::SX_Instance()
+SX_Instance::SX_Instance() : m_note_names(wdl_freefunc)
 {
   m_embed_refstate = 0;
   curses_registerChildClass(g_hInst);

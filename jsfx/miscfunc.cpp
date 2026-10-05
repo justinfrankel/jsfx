@@ -1089,6 +1089,57 @@ EEL_F NSEEL_CGEN_CALL _slider_next_chg(SX_Instance* epctx, EEL_F* ws, EEL_F* nex
   return -1.0;
 }
 
+static int key_from_mode_note_chan(int mode, int note, int chan)
+{
+  if (mode < 0 || mode > 2) return -1;
+  if (chan == -1) chan = 0xffff;
+  else if (chan < 0 || chan >= 16) return -1; // we could extend this for bus support etc
+  if (mode == 2) chan = 0;
+  return (mode << 24) | (chan << 8) | (note & 255);
+}
+
+const char *SX_Instance::get_note_name(int mode, int note, int chan)
+{
+  int key = key_from_mode_note_chan(mode,note,chan);
+  int key2 = key_from_mode_note_chan(mode,note,-1); // get omni key
+  if (key == -1) return NULL;
+
+  WDL_MutexLock lock(&m_string_sermutex);
+  const char *ret = m_note_names.Get(key);
+  if (!ret && key2 != key) ret = m_note_names.Get(key2);
+  if (!ret) return NULL;
+
+  static char s_tmp[256];
+  lstrcpyn_safe(s_tmp,ret,sizeof(s_tmp));
+  return s_tmp;
+}
+
+EEL_F NSEEL_CGEN_CALL _set_midi_note_name(void *opaque, INT_PTR np, EEL_F **parms)
+{
+  SX_Instance *epctx = (SX_Instance *)opaque;
+  if (np < 4) return 0.0;
+
+  WDL_MutexLock lock(&epctx->m_string_sermutex);
+
+  if (parms[0][0] == -1.0)
+  {
+    epctx->m_note_names.DeleteAll();
+    return 1.0;
+  }
+
+  int key = key_from_mode_note_chan((int)parms[0][0], (int)parms[1][0], (int)parms[2][0]);
+  if (key == -1) return 0.0;
+
+  const char *str = epctx->GetStringForIndex(parms[3][0]);
+  if (!str) return 0.0;
+
+  if (!*str) epctx->m_note_names.Delete(key);
+  else epctx->m_note_names.Insert(key,strdup(str));
+
+  return 1.0;
+}
+
+
 
 EEL_F * NSEEL_CGEN_CALL _midi_send(void *opaque, EEL_F *tm, EEL_F *msg, EEL_F *msg23)
 {
@@ -1816,6 +1867,7 @@ void eel_js_register()
   NSEEL_addfunc_retptr("midirecv",3,NSEEL_PProc_THIS,&_midi_recv);
   NSEEL_addfunc_exparms("midirecv",4,NSEEL_PProc_THIS,&_midi_recv2);
   NSEEL_addfunc_retptr("midisyx",3,NSEEL_PProc_THIS,&_midi_syx);
+  NSEEL_addfunc_exparms("set_midi_note_name",4,NSEEL_PProc_THIS,&_set_midi_note_name);
 
   NSEEL_addfunc_retptr("spl",1,NSEEL_PProc_THIS,&_spl_getter);
   NSEEL_addfunc_retptr("slider",1,NSEEL_PProc_THIS,&_slider_getter);

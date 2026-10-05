@@ -97,6 +97,11 @@ INT_PTR sx_extended(SX_Instance *sx, int msg, void *parm1, void *parm2)
     return 1;
     case JSFX_EXT_GET_DEFVAL:
       return sx->get_param_default_value_normalized((int)(INT_PTR)parm1, (double*)parm2)?1:0;
+    case JSFX_EXT_GET_NOTENAME:
+    {
+      const int *parms = (const int*)parm1;
+      return parms ? (INT_PTR)sx->get_note_name(parms[0],parms[1],parms[2]) : 0;
+    }
   }
   return 0;
 }

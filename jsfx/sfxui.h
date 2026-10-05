@@ -450,6 +450,9 @@ class SX_Instance
 
     bool get_param_default_value_normalized(int parmidx, double *v) const;
 
+    const char *get_note_name(int mode, int note, int chan);
+    WDL_IntKeyedArray<char *> m_note_names;
+
   private:
 
     NSEEL_CODEHANDLE m_sample_ch, m_init_ch, m_slider_ch, m_onblock_ch, m_serialize_ch, m_gfx_ch;

@@ -74,6 +74,7 @@ typedef struct
 #define JSFX_EXT_GETFLAGS 0 // returns &1 for is instrument
 #define JSFX_EXT_GET_GR 1 // returns 1 if supported, sets *(double *)parm1 to value
 #define JSFX_EXT_SET_SRATE 2 // parm1 = (void *)(INT_PTR)srate, sets for the next instantiation(s)
+#define JSFX_EXT_GET_NOTENAME 10 // parm1= int[3] = { mode (0=note,1=cc,2=program), note/cc/prog, channel }
 #define JSFX_EXT_GET_DEFVAL 1000 // parm1 = (void*)(INT_PTR)parmidx, parm2 = (double*)&value_normalized, returns nonzero if success
   INT_PTR (*sx_extended)(SX_Instance *, int msg, void *parm1, void *parm2);
   int pad[402]; //for future expansion

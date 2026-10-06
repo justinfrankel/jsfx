@@ -853,6 +853,7 @@ bool SX_Instance::LoadEffect(const char *fn, int resetFlags, WDL_PtrList<void> *
   pre_proc.define("reaper_version",getVersionForScript());
   pre_proc.define("max_nch",MAX_NCH);
   pre_proc.define("jsfx_has_set_midi_note_name",1.0);
+  pre_proc.define("max_sliders",NUM_SLIDERS);
 
   if (resetFlags & LOADEFFECT_RESETFLAG_CONFIGITEMS) m_config_items.Empty(true);
 

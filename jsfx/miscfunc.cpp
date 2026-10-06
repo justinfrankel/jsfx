@@ -1380,6 +1380,23 @@ EEL_F NSEEL_CGEN_CALL SX_Instance::_slider_get(SX_Instance *pthis, EEL_F *item) 
 static int GetSliderMaskIndex(SX_Instance* ep, EEL_F* item, WDL_UINT64 *mask) // item = either mask or pointer to slider
 {
   int idx = ep->find_slider_by_value_ptr(item);
+  if (idx < 0)
+  {
+    // detect exact powers of two
+    if (*item == 0.0) idx = 0;
+    else if (WDL_NORMALLY(sizeof(EEL_F)==8) && *item >= 1.0)
+    {
+      const WDL_UINT64 mask = WDL_UINT64_CONST(0x800FFFFFFFFFFFFF);
+      WDL_UINT64 tmp;
+      memcpy(&tmp,item,sizeof(EEL_F));
+      if (!(tmp&mask))
+      {
+        const int e = (tmp>>52) - 1023;
+        if (e >= 0 && e < NUM_SLIDERS) idx = e;
+      }
+    }
+  }
+
   *mask = idx >= 0 ? 0 : (WDL_UINT64)(WDL_INT64)*item;
   return idx;
 }

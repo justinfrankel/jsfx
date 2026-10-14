@@ -301,8 +301,6 @@ class SX_Instance
 
     const char *set_serialize_code(const char *code, int lineoffs);
     const char *set_gfx_code(const char *code, int lineoffs);
-    int load_serialized_state(char *filename);
-    int save_serialized_state(char *filename);
 
     void save_serialized_state_tomem(WDL_HeapBuf *hb);
     void load_serialized_state_frommem(WDL_HeapBuf *hb); // loads immediately!
@@ -457,7 +455,6 @@ class SX_Instance
 
     NSEEL_CODEHANDLE m_sample_ch, m_init_ch, m_slider_ch, m_onblock_ch, m_serialize_ch, m_gfx_ch;
     WDL_PtrList<void> m_common_ch;
-    char *m_need_loadserialize_fn;
 
     // updates any dirty file sliders:
     //  - reads the value, rounds it to int, writes it back to the var

@@ -548,16 +548,6 @@ const char *SX_Instance::set_serialize_code(const char *code, int lineoffs)
   return p;
 }
 
-int SX_Instance::load_serialized_state(char *filename)
-{
-  free(m_need_loadserialize_fn); m_need_loadserialize_fn=0;
-  struct stat st;
-  if (statUTF8(filename,&st) || st.st_size < 1) return 0;
-
-  m_need_loadserialize_fn=strdup(filename);
-  return st.st_size;
-}
-
 void SX_Instance::load_serialized_state_frommem(WDL_HeapBuf *hb)
 {
   if (m_serialize_ch)
@@ -582,21 +572,6 @@ void SX_Instance::save_serialized_state_tomem(WDL_HeapBuf *hb)
   m_filehandles[0].OpenMem(hb,1);
   NSEEL_code_execute(m_serialize_ch);
   m_filehandles[0].Close();
-}
-
-int SX_Instance::save_serialized_state(char *filename)
-{
-  if (!m_serialize_ch) return 0;
-
-  if (!m_filehandles[0].Open(filename,1)) return 0;
-
-  NSEEL_code_execute(m_serialize_ch);
-
-  int l=ftell(m_filehandles[0].m_fp);
-
-  m_filehandles[0].Close();
-
-  return l;
 }
 
 int SX_Instance::sliderIsEnum(int s)
@@ -911,7 +886,7 @@ int SX_Instance::process_samples(EEL_F *work, int num_samples, int nch, int srat
       if (m_pdc_botch) *m_pdc_botch=0;
     }
 
-    if (m_need_init || m_need_loadserialize_fn)
+    if (m_need_init)
     {
       if (m_need_init&2)
       {
@@ -926,22 +901,6 @@ int SX_Instance::process_samples(EEL_F *work, int num_samples, int nch, int srat
           exec_init_code();
           m_init_mutex.Leave();
         }
-      }
-      if (m_need_loadserialize_fn)
-      {
-        if (m_serialize_ch)
-        {
-          if (m_filehandles[0].Open(m_need_loadserialize_fn,-1))
-          {
-            if (m_filehandles[0].m_itemsleft>0)
-            {
-              NSEEL_code_execute(m_serialize_ch);
-            }
-            m_filehandles[0].Close();
-          }
-        }
-        free(m_need_loadserialize_fn);
-        m_need_loadserialize_fn=0;
       }
 
       if (m_need_init&1) exec_slider_stuff();
@@ -1836,7 +1795,6 @@ SX_Instance::SX_Instance() : m_note_names(wdl_freefunc)
   m_slider_ch = m_sample_ch = m_init_ch = m_onblock_ch = NULL;
   m_serialize_ch = NULL;
   m_gfx_ch = NULL;
-  m_need_loadserialize_fn = NULL;
   m_init_err=m_slider_err=m_onblock_err=m_serialize_err=m_sample_err=0;
   m_description_dirty = false;
 }
@@ -1865,7 +1823,6 @@ SX_Instance::~SX_Instance()
   set_gmem_name("");
 
   NSEEL_VM_free(m_vm);
-  if (m_need_loadserialize_fn) free(m_need_loadserialize_fn);
 
   m_localfilenames.Empty(true,free);
   m_in_pinnames.Empty(true,free);

@@ -28,7 +28,7 @@ public:
   ~fileHandleRec();
   void Close();
   void OpenMem(WDL_HeapBuf *hb, int iswrite);
-  int Open(const char *fn, int iswrite); // returns 1 on success
+  int Open(const char *fn); // returns 1 on success
   void Rewind();
 
   char *txt_eval_op(int *op, char *token);

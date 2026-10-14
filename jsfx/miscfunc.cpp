@@ -259,7 +259,7 @@ void fileHandleRec::OpenMem(WDL_HeapBuf *hb, int iswrite)
   m_start_len=m_itemsleft;
 }
 
-int fileHandleRec::Open(const char *fn, int iswrite)
+int fileHandleRec::Open(const char *fn)
 {
   m_hb_wpos=0;
   m_hb=0;
@@ -275,7 +275,7 @@ int fileHandleRec::Open(const char *fn, int iswrite)
   const bool isTextExt = !stricmp(ext,".txt");
   const bool isRawExt = !stricmp(ext,".raw");
 
-  if (!isTextExt && !isRawExt && !iswrite &&
+  if (!isTextExt && !isRawExt &&
       // avoid trying to open xml/mxl/musicxml
       stricmp(ext,".xml") &&
       stricmp(ext,".mxl") &&
@@ -307,26 +307,13 @@ int fileHandleRec::Open(const char *fn, int iswrite)
     if (m_pcm_src) return 1;
   }
 
-  m_fp=fopenUTF8(fn,iswrite>0?"wb":"rb");
+  m_fp=fopenUTF8(fn,"rb");
 
   if (!m_fp) return 0;
-  if (iswrite>0)
-  {
-    m_mode=FILE_MODE_WRITE;
-    return 1;
-  }
 
   fseek(m_fp,0,SEEK_END);
   m_itemsleft=ftell(m_fp)/sizeof(float);
   fseek(m_fp,0,SEEK_SET);
-
-  if (iswrite<0)
-  {
-    m_start_offs=0;
-    m_start_len=m_itemsleft;
-    return 1;
-  }
-
 
   if (isTextExt)
   {
@@ -1545,7 +1532,7 @@ EEL_F NSEEL_CGEN_CALL _serialize_open(SX_Instance *epctx, EEL_F *fname)
     if (!epctx->m_filehandles[x].m_fp && !epctx->m_filehandles[x].m_pcm_src) break;
   }
 
-  if (x == MAX_EFFECT_FILES+1 || !epctx->m_filehandles[x].Open(fn.Get(),0))
+  if (x == MAX_EFFECT_FILES+1 || !epctx->m_filehandles[x].Open(fn.Get()))
   {
     return -1.0;
   }

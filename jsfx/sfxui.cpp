@@ -1704,6 +1704,7 @@ WDL_DLGRET SX_Instance::ConfigDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LP
               if (dr>=0)
               {
                 gfx_runCode(0);
+                ps->finish_cap();
                 if (ps->hwnd_standalone && ps->m_framebuffer_dirty)
                 {
                   InvalidateRect(ps->hwnd_standalone,NULL,FALSE);

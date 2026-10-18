@@ -65,7 +65,7 @@ class fontConfigCacheEnt
       m_flags = flags;
       m_face = face;
       m_w=w;
-      m_h=h;
+      m_logh=h;
       m_fndesc = strdup(fndesc);
       FT_Reference_Face(m_face);
     }
@@ -78,7 +78,8 @@ class fontConfigCacheEnt
 
     char *m_name;
     char *m_fndesc;
-    int m_flags, m_w, m_h;
+    int m_flags, m_w;
+    int m_logh; // can be negative
     FT_Face m_face;
 };
 
@@ -167,9 +168,13 @@ static void ScanFontDirectory(const char *path, int maxrec=3)
   } while (!ds.Next());
 }
 
-static int sortByFilePart(const char **a, const char **b)
+static int sortByFilePart(const char *a, const char *b)
 {
-  return stricmp(WDL_get_filepart(*a),WDL_get_filepart(*b));
+  return stricmp(WDL_get_filepart(a),WDL_get_filepart(b));
+}
+static int sortByFilePartDeref(const void *a, const void *b)
+{
+  return stricmp(WDL_get_filepart(*(const char **)a),WDL_get_filepart(*(const char **)b));
 }
 
 struct fontScoreMatched {
@@ -407,12 +412,15 @@ HFONT CreateFont(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation,
 #else
       ScanFontDirectory("/usr/share/fonts");
 
-      qsort(s_freetype_fontlist.GetList(),s_freetype_fontlist.GetSize(),sizeof(const char *),(int (*)(const void *,const void*))sortByFilePart);
+      qsort(s_freetype_fontlist.GetList(),s_freetype_fontlist.GetSize(),sizeof(const char *),sortByFilePartDeref);
 #endif
     }
   }
   if (lfWidth<0) lfWidth=-lfWidth;
-  if (lfHeight<0) lfHeight=-lfHeight;
+  if (lfHeight >= -1 && lfHeight <= 1) lfHeight = -12; // reasonable default
+
+  font->wid = lfWidth;
+  font->color = lfHeight;
 
   static WDL_PtrList<fontConfigCacheEnt> cache;
   const int cache_flag = wdl_max(lfWeight,0) | (lfItalic ? (1<<30) : 0);
@@ -420,9 +428,9 @@ HFONT CreateFont(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation,
   for (int x=0;x<cache.GetSize();x++)
   {
     fontConfigCacheEnt *ent = cache.Get(x);
-    if (ent->m_flags==cache_flag && 
-        ent->m_w == lfWidth && 
-        ent->m_h == lfHeight && 
+    if (ent->m_flags==cache_flag &&
+        ent->m_w == lfWidth &&
+        ent->m_logh == lfHeight &&
         !strcmp(ent->m_name,lfFaceName?lfFaceName:""))
     {
       face = ent->m_face;
@@ -543,7 +551,14 @@ HFONT CreateFont(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation,
       if (cache.GetSize()>SWELL_FREETYPE_CACHE_SIZE) cache.Delete(0,true);
       swell_last_font_filename = ce->m_fndesc;
 
-      FT_Set_Char_Size(face,lfWidth*64, lfHeight*64,0,0); // 72dpi
+      int hf64;
+      if (lfHeight > 0)
+        // scale point size so that the height fit in this many pixels
+        hf64 = (int) (lfHeight * (double)face->units_per_EM / (double)(face->height) * 64.0 + 0.5);
+      else
+        hf64 = -lfHeight * 64;
+
+      FT_Set_Char_Size(face,lfWidth*64, hf64,0,0);
     }
   }
   font->typedata = face;
@@ -553,7 +568,7 @@ HFONT CreateFont(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation,
 }
 
 
-HFONT CreateFontIndirect(LOGFONT *lf)
+HFONT CreateFontIndirect(const LOGFONT *lf)
 {
   return CreateFont(lf->lfHeight, lf->lfWidth,lf->lfEscapement, lf->lfOrientation, lf->lfWeight, lf->lfItalic, 
                     lf->lfUnderline, lf->lfStrikeOut, lf->lfCharSet, lf->lfOutPrecision,lf->lfClipPrecision, 
@@ -876,7 +891,7 @@ void SWELL_LineTo(HDC ctx, int x, int y)
  
 }
 
-void PolyPolyline(HDC ctx, POINT *pts, DWORD *cnts, int nseg)
+void PolyPolyline(HDC ctx, const POINT *pts, const DWORD *cnts, int nseg)
 {
   HDC__ *c=(HDC__ *)ctx;
   if (!HDC_VALID(c)||!HGDIOBJ_VALID(c->curpen,TYPE_PEN)||c->curpen->wid<0||nseg<1) return;
@@ -887,16 +902,15 @@ void PolyPolyline(HDC ctx, POINT *pts, DWORD *cnts, int nseg)
     if (!cnt) continue;
     if (!--cnt) { pts++; continue; }
     
- //   CGContextMoveToPoint(c->ctx,(float)pts->x,(float)pts->y);
+    // todo
     pts++;
     
     while (cnt--)
     {
-//      CGContextAddLineToPoint(c->ctx,(float)pts->x,(float)pts->y);
+      // todo
       pts++;
     }
   }
-//  CGContextStrokePath(c->ctx);
 }
 void *SWELL_GetCtxGC(HDC ctx)
 {
@@ -919,10 +933,20 @@ HFONT SWELL_GetDefaultFont()
   static HFONT def;
   if (!def)
   {
-    def = CreateFont(g_swell_ctheme.default_font_size,0,0,0,FW_NORMAL,0,0,0,0,0,0,0,0,g_swell_deffont_face);
+    def = CreateFont(-wdl_abs(g_swell_ctheme.default_font_size),0,0,0,FW_NORMAL,0,0,0,0,0,0,0,0,g_swell_deffont_face);
   }
   return def;
 }
+
+#ifdef SWELL_FREETYPE
+static int swell_ft_mulfix64(int a, int b)
+{
+  const WDL_INT64 c = a * (WDL_INT64) b;
+  // .22 fixed point to integer
+  return (c + (1<<21) - 1) >> 22;
+}
+#endif
+
 
 BOOL GetTextMetrics(HDC ctx, TEXTMETRIC *tm)
 {
@@ -942,12 +966,12 @@ BOOL GetTextMetrics(HDC ctx, TEXTMETRIC *tm)
   if (font && font->typedata)
   {
     FT_Face face=(FT_Face) font->typedata;
-    tm->tmAscent = face->size->metrics.ascender/64;
-    tm->tmDescent = -face->size->metrics.descender/64;
-    tm->tmHeight = (face->size->metrics.ascender - face->size->metrics.descender)/64;
+    tm->tmAscent = swell_ft_mulfix64(face->ascender, face->size->metrics.y_scale);
+    tm->tmDescent = swell_ft_mulfix64(-face->descender, face->size->metrics.y_scale);
+    tm->tmHeight = tm->tmAscent + tm->tmDescent;
+    tm->tmInternalLeading = tm->tmHeight - face->size->metrics.y_ppem;
     tm->tmAveCharWidth = face->size->metrics.height / 112;
 
-    tm->tmInternalLeading = (face->size->metrics.ascender + face->size->metrics.descender - face->size->metrics.height)/64;
     if (tm->tmInternalLeading<0) tm->tmInternalLeading=0;
   }
 #endif
@@ -955,6 +979,81 @@ BOOL GetTextMetrics(HDC ctx, TEXTMETRIC *tm)
   return 1;
 }
 
+#ifdef SWELL_FREETYPE
+
+static WDL_PtrList<HGDIOBJ__> s_glyph_font_fallbacks;
+static void init_glyph_fallbacks()
+{
+  static bool s_init;
+  if (s_init) return;
+  s_init = true;
+  const char *n = "missing_glyph_fontlist";
+  char buf[8192];
+  GetPrivateProfileString(".swell",n,"",buf,sizeof(buf),"");
+  if (!buf[0])
+  {
+    WritePrivateProfileString(".swell",n,"# semicolon delimited list of fonts for missing glyphs, e.g. Noto Sans CJK SC;Noto Sans CJK HK","");
+    return;
+  }
+
+  char *p = buf;
+  while (*p && *p != '#')
+  {
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p || *p == '#') break;
+    char *np = p;
+    while (*np && *np != '#' && *np != ';') np++;
+    char *ep = np - 1;
+    if (*np == '#') *np = 0;
+    else if (*np) *np++ = 0;
+
+    while (ep >= p && (*ep == '\t' || *ep == ' ')) *ep-- = 0;
+    if (*p)
+    {
+      HFONT f = CreateFont(-16,0,0,0,0,0,0,0,0,0,0,0,0,p);
+      if (f) s_glyph_font_fallbacks.Add(f);
+    }
+    p = np;
+  }
+}
+
+static int Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face &face, int c, int flags) // true on failure
+{
+  if (!FT_Get_Char_Index(face,c))
+  {
+    init_glyph_fallbacks();
+    // try fallbacks
+    for (int i = 0; i < s_glyph_font_fallbacks.GetSize(); i ++)
+    {
+      HGDIOBJ__ *p = s_glyph_font_fallbacks.Get(i);
+      if (WDL_NORMALLY(p && HGDIOBJ_VALID(p,TYPE_FONT)))
+      {
+        FT_Face f=(FT_Face) p->typedata;
+        if (f && FT_Get_Char_Index(f,c))
+        {
+          if (WDL_NORMALLY(srcfont))
+          {
+            int lfHeight = srcfont->color, lfWidth = srcfont->wid, hf64;
+            if (lfHeight > 0)
+              hf64 = (int) (lfHeight * (double)f->units_per_EM / (double)(f->height) * 64.0 + 0.5);
+            else
+              hf64 = -lfHeight * 64;
+            FT_Set_Char_Size(f,lfWidth*64, hf64,0,0);
+          }
+
+          if (!FT_Load_Char(f,c,flags))
+          {
+            face = f;
+            return 0;
+          }
+        }
+      }
+    }
+  }
+
+  return FT_Load_Char(face,c,flags);
+}
+#endif
 
 int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
 {
@@ -977,9 +1076,9 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
   if (font && font->typedata) 
   {
     face=(FT_Face)font->typedata;
-    lineh = face->size->metrics.height/64;
-    ascent = face->size->metrics.ascender/64;
-    descent = face->size->metrics.descender/64;
+    lineh = swell_ft_mulfix64(face->height, face->size->metrics.y_scale);
+    ascent = swell_ft_mulfix64(face->ascender, face->size->metrics.y_scale);
+    descent = swell_ft_mulfix64(face->descender, face->size->metrics.y_scale);
     charw = face->size->metrics.height / 112;
   }
 #endif
@@ -990,6 +1089,7 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
     int ypos=0;
 
     r->bottom=r->top;
+    r->right=r->left;
     bool in_prefix=false;
     while (buflen && *buf) // if buflen<0, go forever
     {
@@ -1017,10 +1117,11 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
         if (font)
         {
 #ifdef SWELL_FREETYPE
-          if (c != '\t' && !FT_Load_Char(face, c, FT_LOAD_DEFAULT) && face->glyph)
+          FT_Face useface = face;
+          if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_DEFAULT) && useface->glyph)
           {
             // measure character
-            FT_GlyphSlot g = face->glyph;
+            FT_GlyphSlot g = useface->glyph;
             int rext = xpos;
             if ((align&(DT_BOTTOM|DT_VCENTER|DT_CENTER|DT_RIGHT))!=DT_RIGHT)
               rext += (g->metrics.width + g->metrics.horiBearingX)/64;
@@ -1145,9 +1246,10 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
       if (font)
       {
 #ifdef SWELL_FREETYPE
-        if (c != '\t' && !FT_Load_Char(face, c, FT_LOAD_RENDER) && face->glyph)
+        FT_Face useface = face;
+        if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_RENDER) && useface->glyph)
         {
-          FT_GlyphSlot g = face->glyph;
+          FT_GlyphSlot g = useface->glyph;
           const int ha = g->metrics.horiAdvance/64;
           if (bgmode==OPAQUE) LICE_FillRect(surface,xpos,ypos,ha,(align & DT_SINGLELINE) ? (ascent-descent) : lineh,bgcol,1.0f,LICE_BLIT_MODE_COPY);
   
@@ -1422,21 +1524,39 @@ HGDIOBJ SWELL_CloneGDIObject(HGDIOBJ a)
 
 void SWELL_PushClipRegion(HDC ctx)
 {
-//  HDC__ *ct=(HDC__ *)ctx;
-//  if (ct && ct->ctx) CGContextSaveGState(ct->ctx);
+  HDC__ *ct=(HDC__ *)ctx;
+  if (ct && ct->surface && WDL_NORMALLY(!ct->surface_save))
+  {
+    ct->surface_save = ct->surface;
+    ct->surface_offs_save = ct->surface_offs;
+  }
 }
 
 void SWELL_SetClipRegion(HDC ctx, const RECT *r)
 {
-//  HDC__ *ct=(HDC__ *)ctx;
-//  if (ct && ct->ctx) CGContextClipToRect(ct->ctx,CGRectMake(r->left,r->top,r->right-r->left,r->bottom-r->top));
-
+  HDC__ *ct=(HDC__ *)ctx;
+  if (ct && ct->surface && WDL_NORMALLY(ct->surface == ct->surface_save))
+  {
+    int xo = r->left + ct->surface_offs.x, yo = r->top + ct->surface_offs.y;
+    int w = r->right - r->left, h = r->bottom - r->top;
+    if (xo < 0) { w += xo; xo = 0; }
+    if (yo < 0) { h += yo; yo = 0; }
+    ct->surface=new LICE_SubBitmap(ct->surface_save, xo, yo, w, h);
+    ct->surface_offs.x -= xo;
+    ct->surface_offs.y -= yo;
+  }
 }
 
 void SWELL_PopClipRegion(HDC ctx)
 {
-//  HDC__ *ct=(HDC__ *)ctx;
-//  if (ct && ct->ctx) CGContextRestoreGState(ct->ctx);
+  HDC__ *ct=(HDC__ *)ctx;
+  if (ct && WDL_NORMALLY(ct->surface_save))
+  {
+    if (ct->surface != ct->surface_save) delete ct->surface;
+    ct->surface = ct->surface_save;
+    ct->surface_offs = ct->surface_offs_save;
+    ct->surface_save = NULL;
+  }
 }
 
 void *SWELL_GetCtxFrameBuffer(HDC ctx)
@@ -1704,9 +1824,12 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
         if (yp<0) height+=yp;
         else { suby=yp; yp=0; }
 
-        LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
-        if (subbm.getWidth()>0 && subbm.getHeight()>0)
-          SWELL_internalLICEpaint(h,&subbm,-xp,-yp,forceref);
+        if (width > 0 && height > 0)
+        {
+          LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
+          if (subbm.getWidth()>0 && subbm.getHeight()>0)
+            SWELL_internalLICEpaint(h,&subbm,-xp,-yp,forceref);
+        }
       }
       h = h->m_next;
     }
@@ -1740,7 +1863,7 @@ HBITMAP CreateBitmap(int width, int height, int numplanes, int bitsperpixel, uns
   return icon;
 }
 
-HICON CreateIconIndirect(ICONINFO* iconinfo)
+HICON CreateIconIndirect(const ICONINFO* iconinfo)
 {
   if (WDL_NOT_NORMALLY(!iconinfo || !iconinfo->fIcon)) return 0;  
   HGDIOBJ__* i=iconinfo->hbmColor;

@@ -419,12 +419,22 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
   {
     case WM_CREATE:
       hwnd->m_classname = "__SWELL_MENU";
+      // WS_CHILD is used by menus to force override redirect
       hwnd->m_style = WS_CHILD;
       m_trackingMenus.Add(hwnd);
       SetWindowLongPtr(hwnd,GWLP_USERDATA,lParam);
 
       if (m_trackingPar && !(m_trackingFlags&TPM_NONOTIFY))
+      {
+        hwnd->Retain();
         SendMessage(m_trackingPar,WM_INITMENUPOPUP,(WPARAM)lParam,0);
+        if (hwnd->m_hashaddestroy)
+        {
+          hwnd->Release();
+          return 0;
+        }
+        hwnd->Release();
+      }
 
       {
         HDC hdc = GetDC(hwnd);

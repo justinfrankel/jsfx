@@ -204,7 +204,6 @@ const char *__localizeFunc(const char *str, const char *subctx, int flags)
 
   char *newptr = NULL;
 
-  int trycnt;
   size_t len = strlen(str)+1;
 
   if (flags & LOCALIZE_FLAG_DOUBLENULL)
@@ -229,7 +228,8 @@ const char *__localizeFunc(const char *str, const char *subctx, int flags)
   else
     hash = WDL_FNV64(WDL_FNV64_IV,(const unsigned char *)str,(int)len);
 
-  for (trycnt=0;trycnt<2 && !newptr;trycnt++)
+  const int ntry = (flags & LOCALIZE_FLAG_NOCOMMON) ? 1 : 2;
+  for (int trycnt=0; trycnt<ntry && !newptr;trycnt++)
   {
     WDL_KeyedArray<WDL_UINT64, char *> *section = trycnt == 1 ? g_translations_commonsec : g_translations.Get(subctx);
 
@@ -383,11 +383,18 @@ struct windowReorgEnt
     WRET_MISC, // dont analyze for size changes, but move around
 
   };
+  enum subMode {
+    SUBMODE_NONE=0,
+    SUBMODE_STATIC,
+    SUBMODE_BUTTON,
+    SUBMODE_CHECKBOX,
+  };
   windowReorgEnt(HWND _hwnd, RECT _r, int wc)
   {
     hwnd=_hwnd;
     orig_r=r=_r;
     mode=WRET_MISC;
+    submode=SUBMODE_NONE;
     move_amt=0;
     wantsizeincrease=0;
     scaled_width_change = wc;
@@ -398,6 +405,7 @@ struct windowReorgEnt
   HWND hwnd;
   RECT r,orig_r;
   windowReorgEntType mode;
+  subMode submode;
   int move_amt;
   int wantsizeincrease;
   int scaled_width_change;
@@ -544,13 +552,25 @@ static BOOL CALLBACK xlateGetRects(HWND hwnd, LPARAM lParam)
   if (!strcmp(buf,"Button"))
   {
     LONG style=GetWindowLong(hwnd,GWL_STYLE);
-    if (LOWORD(style)==BS_GROUPBOX) t.mode = windowReorgEnt::WRET_GROUP;
-    else t.mode = windowReorgEnt::WRET_SIZEADJ;
+    if ((style&BS_TYPEMASK)==BS_GROUPBOX) t.mode = windowReorgEnt::WRET_GROUP;
+    else
+    {
+      t.mode = windowReorgEnt::WRET_SIZEADJ;
+      if (((style&BS_TYPEMASK) >= BS_CHECKBOX && 
+             (style&BS_TYPEMASK) <= BS_AUTO3STATE) ||
+          (style&BS_TYPEMASK) == BS_AUTORADIOBUTTON)
+      {
+        t.submode = windowReorgEnt::SUBMODE_CHECKBOX;
+      }
+      else
+        t.submode = windowReorgEnt::SUBMODE_BUTTON;
+    }
   }
   else if (!strcmp(buf,"Static"))
   {
     if (!(GetWindowLong(hwnd,GWL_STYLE)&(SS_RIGHT|SS_CENTER)))
       t.mode = windowReorgEnt::WRET_SIZEADJ;
+    t.submode = windowReorgEnt::SUBMODE_STATIC;
   }
 #else
   if (SWELL_IsGroupBox(hwnd)) t.mode = windowReorgEnt::WRET_GROUP;
@@ -580,11 +600,20 @@ static BOOL CALLBACK xlateGetRects(HWND hwnd, LPARAM lParam)
   return TRUE;
 }
 
+static int overlapSizeForControl(HWND h)
+{
+#ifdef __APPLE__
+  extern int g_swell_osx_style;
+  if ((g_swell_osx_style&1) && h && SWELL_IsButton(h) && !(GetWindowLong(h,GWL_STYLE)&0xf)) return 7;
+#endif
+  return 0;
+}
 static int rippleControlsRight(HWND hwnd, const RECT *srcR, windowReorgEnt *ent, int ent_cnt, int dSize, int clientw)
 {
   // limit first to client rectangle
   int space = clientw - 6 - srcR->right;
   if (dSize>space) dSize=space;
+  const int olap_outer = overlapSizeForControl(hwnd);
 
   while (ent_cnt>0 && dSize>0)
   {
@@ -592,9 +621,11 @@ static int rippleControlsRight(HWND hwnd, const RECT *srcR, windowReorgEnt *ent,
 #define LOCALIZE_ISECT_PAIRS(x1,x2,y1,y2)  \
       ((x1 >= y1 && x1 < y2) || (x2 >= y1 && x2 < y2) ||  \
        (y1 >= x1 && y1 < x2) || (y2 >= x1 && y2 < x2))
-    if (ent->r.left >= srcR->right-1 && LOCALIZE_ISECT_PAIRS(srcR->top,srcR->bottom,ent->r.top,ent->r.bottom))
+
+    if (LOCALIZE_ISECT_PAIRS(srcR->top,srcR->bottom,ent->r.top,ent->r.bottom) &&
+          ent->r.left >= srcR->right-1-olap_outer-overlapSizeForControl(ent->hwnd))
     {
-      space = ent->r.left - srcR->right;
+      space = wdl_max(ent->r.left - srcR->right,0);
 
       if (ent->mode == windowReorgEnt::WRET_GROUP)
       {
@@ -755,13 +786,19 @@ static void localize_dialog(HWND hwnd, WDL_KeyedArray<WDL_UINT64, char *> *sec)
       {
         if (newText && rec->mode == windowReorgEnt::WRET_SIZEADJ)
         {
-          RECT r1={0},r2={0};
-#ifdef _WIN32
-          DrawTextUTF8(hdc,buf,-1,&r1,DT_CALCRECT);
-          DrawTextUTF8(hdc,newText,-1,&r2,DT_CALCRECT);
-          r1.right += rec->scaled_width_change;
-#else
+          RECT r1,r2={0};
           GetClientRect(rec->hwnd,&r1);
+#ifdef _WIN32
+          DrawTextUTF8(hdc,newText,-1,&r2,DT_CALCRECT);
+          if (rec->submode == windowReorgEnt::SUBMODE_BUTTON)
+            r2.right += 4;
+          else if (rec->submode == windowReorgEnt::SUBMODE_CHECKBOX)
+          {
+            r2.right += 4 + (r1.bottom-r1.top); // use height as a rough approximation of width of checkbox element
+          }
+          else
+            r2.right += 2;
+#else
           SWELL_GetDesiredControlSize(rec->hwnd,&r2);
 #endif
           if (r2.right > r1.right)
@@ -889,14 +926,21 @@ static void localize_dialog(HWND hwnd, WDL_KeyedArray<WDL_UINT64, char *> *sec)
 #endif
 }
 
+int localizeLastDialogResourceId; // valid only in localizePreInitDialogHook/localizePostInitDialogHook
+const char *localizeLastDialogResourceSub;
+void (*localizePreInitDialogHook)(HWND hwndDlg);
+void (*localizePostInitDialogHook)(HWND hwndDlg);
+
 void __localizeInitializeDialog(HWND hwnd, const char *desc)
 {
   if (!desc || !hwnd || !*desc) return;
+
+  localizeLastDialogResourceId = 0; // we don't know the ID for this context
+  if (localizePreInitDialogHook) localizePreInitDialogHook(hwnd);
   WDL_KeyedArray<WDL_UINT64, char *> *s = g_translations.Get(desc);
   if (s) localize_dialog(hwnd,s);
+  if (localizePostInitDialogHook) localizePostInitDialogHook(hwnd);
 }
-
-void (*localizePreInitDialogHook)(HWND hwndDlg);
 
 static WDL_DLGRET __localDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -908,6 +952,9 @@ static WDL_DLGRET __localDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
         if (localizePreInitDialogHook)
           localizePreInitDialogHook(hwnd);
+
+        localizeLastDialogResourceId = 0;
+        localizeLastDialogResourceSub = NULL;
 
         if (l[2])
           localize_dialog(hwnd,(WDL_KeyedArray<WDL_UINT64, char *> *)l[2]);
@@ -923,6 +970,8 @@ static WDL_DLGRET __localDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
           }
         }
 #endif
+        if (localizePostInitDialogHook)
+          localizePostInitDialogHook(hwnd);
 
         DLGPROC newproc = (DLGPROC) l[0];
         SetWindowLongPtr(hwnd,DWLP_DLGPROC,(LRESULT) newproc);
@@ -976,6 +1025,8 @@ DLGPROC __localizePrepareDialog(const char *rescat, HINSTANCE hInstance, const c
     }
 #endif
   }
+  localizeLastDialogResourceId = (int)(INT_PTR)lpTemplate;
+  localizeLastDialogResourceSub = rescat;
 
   ptrs[0] = (void*)dlgProc;
   ptrs[1] = (void*)(INT_PTR)lParam;
@@ -984,7 +1035,7 @@ DLGPROC __localizePrepareDialog(const char *rescat, HINSTANCE hInstance, const c
 #ifdef WDL_LOCALIZE_HOOK_DLGPROC
   WDL_LOCALIZE_HOOK_DLGPROC
 #endif
-  return (s||s2||(a>0 && localizePreInitDialogHook)) ? __localDlgProc : NULL;
+  return (s||s2||(a>0 && (localizePreInitDialogHook || localizePostInitDialogHook))) ? __localDlgProc : NULL;
 }
 
 HWND __localizeDialog(HINSTANCE hInstance, const char *lpTemplate, HWND hwndParent, DLGPROC dlgProc, LPARAM lParam, int mode)
@@ -1007,7 +1058,17 @@ HWND __localizeDialog(HINSTANCE hInstance, const char *lpTemplate, HWND hwndPare
   switch (mode)
   {
     case 0: return CreateDialogParam(hInstance,lpTemplate,hwndParent,dlgProc,lParam);
-    case 1: return (HWND) (INT_PTR)DialogBoxParam(hInstance,lpTemplate,hwndParent,dlgProc,lParam);
+    case 1:
+    {
+#ifdef WDL_LOCALIZE_HOOK_DIALOGBOX_BEGIN
+      WDL_LOCALIZE_HOOK_DIALOGBOX_BEGIN
+#endif
+      HWND ret = (HWND) (INT_PTR)DialogBoxParam(hInstance,lpTemplate,hwndParent,dlgProc,lParam);
+#ifdef WDL_LOCALIZE_HOOK_DIALOGBOX_END
+      WDL_LOCALIZE_HOOK_DIALOGBOX_END
+#endif
+      return ret;
+    }
   }
   return 0;
 }
@@ -1136,6 +1197,11 @@ void WDL_fgets_as_utf8(char *linebuf, int linebuf_size, FILE *fp, int *format_fl
 WDL_KeyedArray<WDL_UINT64, char *> *WDL_GetLangpackSection(const char *sec)
 {
   return g_translations.Get(sec);
+}
+
+WDL_KeyedArray<WDL_UINT64, char *> *WDL_EnumLangpackSections(int idx, const char **secname)
+{
+  return g_translations.Enumerate(idx,secname);
 }
 
 WDL_KeyedArray<WDL_UINT64, char *> *WDL_LoadLanguagePackInternal(const char *fn,

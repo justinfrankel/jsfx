@@ -58,10 +58,11 @@ int EEL_Editor::namedTokenHighlight(const char *tokStart, int len, int state)
 
   if (len == 17 && !strnicmp(tokStart,"__denormal_likely",17)) return SYNTAX_FUNC;
   if (len == 19 && !strnicmp(tokStart,"__denormal_unlikely",19)) return SYNTAX_FUNC;
+  if (len == 3 && !strnicmp(tokStart,"pow",3)) return SYNTAX_FUNC;
 
   char buf[512];
   lstrcpyn_safe(buf,tokStart,wdl_min(sizeof(buf),len+1));
-  NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM() : NULL;
+  NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM(buf) : NULL;
   if (nseel_getFunctionByName((compileContext*)vm,buf,NULL)) return SYNTAX_FUNC;
 
   return A_NORMAL;
@@ -423,6 +424,7 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
     }
     else if (tok[0] > 0 && (isalpha_safe(tok[0]) || tok[0] == '_' || (ignoreSyntaxState != -2 && tok[0] == '#')))
     {
+      if (ignoreSyntaxState == -2) goto dostr;
       int def_attr = A_NORMAL;
       bool isf=true;
       if (tok[0] == '#')
@@ -529,6 +531,7 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
         if (tok[0] < 0) while (err_left < toklen && tok[err_left]<0) err_left++; // utf-8 skip
       }
     }
+dostr:
 
     if (ignoreSyntaxState) err_left = err_right = 0;
 
@@ -546,7 +549,7 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
     if (err_right > 0)
       draw_string(&skipcnt,tok+toklen-err_right,err_right,&last_attr,SYNTAX_ERROR);
 
-    if (ignoreSyntaxState == -1 && tok[0] == '>')
+    if (tok[0] == '>' && (ignoreSyntaxState == -2 || ignoreSyntaxState == -1))
     {
       draw_string(&skipcnt,p,strlen(p),&last_attr,ignoreSyntaxState==2 ? SYNTAX_COMMENT : A_NORMAL);
       break;
@@ -1176,7 +1179,7 @@ static int fuzzy_match2(const char *codestr, int codelen, const char *refstr, in
     const int wordlen = word_len(word);
     if (!wordlen) break;
     char word_buf[128];
-    lstrcpyn_safe(word_buf,word,wordlen+1);
+    lstrcpyn_safe(word_buf,word,wdl_min(wordlen+1,sizeof(word_buf)));
 
     if (WDL_stristr(refstr,word_buf)==word)
     {
@@ -1220,7 +1223,7 @@ void EEL_Editor::get_suggested_token_names(const char *fname, int chkmask, sugge
   if (chkmask & (KEYWORD_MASK_BUILTIN_FUNC|KEYWORD_MASK_USER_VAR))
   {
     peek_lock();
-    NSEEL_VMCTX vm = peek_get_VM();
+    NSEEL_VMCTX vm = peek_get_VM("");
     compileContext *fvm = vm && peek_want_VM_funcs() ? (compileContext*)vm : NULL;
     if (chkmask&KEYWORD_MASK_BUILTIN_FUNC) for (x=0;;x++)
     {
@@ -1287,8 +1290,16 @@ int EEL_Editor::peek_get_token_info(const char *name, char *sstr, size_t sstr_sz
   {
     int rv = 0;
     peek_lock();
-    NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM() : NULL;
+    NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM("") : NULL;
     functionType *f = (chkmask&KEYWORD_MASK_BUILTIN_FUNC) ? nseel_getFunctionByName((compileContext*)vm,name,NULL) : NULL;
+    functionType tmp;
+    if (!f && (chkmask&KEYWORD_MASK_BUILTIN_FUNC) && !stricmp(name,"pow"))
+    {
+      memset(&tmp,0,sizeof(tmp));
+      tmp.name = "pow";
+      tmp.nParams = 2;
+      f = &tmp;
+    }
     double v;
     if (f)
     {
@@ -1297,7 +1308,7 @@ int EEL_Editor::peek_get_token_info(const char *name, char *sstr, size_t sstr_sz
     }
     else if (chkmask & KEYWORD_MASK_USER_VAR)
     {
-      if (!vm) vm = peek_get_VM();
+      if (!vm) vm = peek_get_VM("");
       EEL_F *vptr=NSEEL_VM_getvar(vm,name);
       if (vptr)
       {
@@ -1433,7 +1444,7 @@ void EEL_Editor::doWatchInfo(int c)
         {
           peek_lock();
           NSEEL_CODEHANDLE ch;
-          NSEEL_VMCTX vm = peek_get_VM();
+          NSEEL_VMCTX vm = peek_get_VM("");
 
           if (vm && (ch = NSEEL_code_compile_ex(vm,code.Get(),1,0)))
           {
@@ -1472,7 +1483,7 @@ void EEL_Editor::doWatchInfo(int c)
       
           peek_lock();
 
-          NSEEL_VMCTX vm = peek_get_VM();
+          NSEEL_VMCTX vm = peek_get_VM(code.Get());
 
           EEL_F *vptr=NULL;
           double v=0.0;
@@ -1589,7 +1600,7 @@ void EEL_Editor::draw_bottom_line()
 #define BOLD(x) { attrset(COLOR_BOTTOMLINE|A_BOLD); addstr(x); attrset(COLOR_BOTTOMLINE&~A_BOLD); }
   addstr("ma"); BOLD("T"); addstr("ch");
   BOLD(" S"); addstr("ave");
-  if (peek_get_VM())
+  if (peek_get_VM(""))
   {
     addstr(" pee"); BOLD("K");
   }

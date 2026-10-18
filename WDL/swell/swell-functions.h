@@ -266,6 +266,10 @@ SWELL_API_DEFINE(HWND,FindWindowEx,(HWND par, HWND lastw, const char *classname,
 ** than r.top, due to flipped coordinates. SetWindowPos and other functions 
 ** handle negative heights gracefully, and you should too.
 **
+** In order to make the above logic work:
+** GetWindowRect() on a child window will have bottom <= top
+** GetWindowRect() on a top level window will have top < bottom
+**
 ** GetWindowContentViewRect gets the rectangle of the content view (pre-NCCALCSIZE etc)
 */
 SWELL_API_DEFINE(void, ClientToScreen,(HWND hwnd, POINT *p))
@@ -278,6 +282,8 @@ SWELL_API_DEFINE(BOOL, WinOffsetRect, (LPRECT lprc, int dx, int dy))
 SWELL_API_DEFINE(BOOL, WinSetRect, (LPRECT lprc, int xLeft, int yTop, int xRight, int yBottom))
 SWELL_API_DEFINE(void,WinUnionRect,(RECT *out, const RECT *in1, const RECT *in2))
 SWELL_API_DEFINE(int,WinIntersectRect,(RECT *out, const RECT *in1, const RECT *in2))
+
+SWELL_API_DEFINE(BOOL, MoveFile, (const char *srcfilename, const char *destfilename))
 
 SWELL_API_DEFINE(void, SetWindowPos,(HWND hwnd, HWND unused, int x, int y, int cx, int cy, int flags))
 
@@ -876,7 +882,7 @@ SWELL_API_DEFINE(void *, SWELL_GetCtxFrameBuffer,(HDC ctx))
 
 /* 
 ** Some utility functions for pushing, setting, and popping the clip region. 
-** macOS-only
+** Note: on swell/lice, only one item is allowed on the clip region stack
 */
 SWELL_API_DEFINE(void, SWELL_PushClipRegion,(HDC ctx))
 SWELL_API_DEFINE(void, SWELL_SetClipRegion,(HDC ctx, const RECT *r))
@@ -884,7 +890,7 @@ SWELL_API_DEFINE(void, SWELL_PopClipRegion,(HDC ctx))
 
 
 
-SWELL_API_DEFINE(HFONT, CreateFontIndirect,(LOGFONT *))
+SWELL_API_DEFINE(HFONT, CreateFontIndirect,(const LOGFONT *))
 SWELL_API_DEFINE(HFONT, CreateFont,(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation, int lfWeight, char lfItalic, 
   char lfUnderline, char lfStrikeOut, char lfCharSet, char lfOutPrecision, char lfClipPrecision, 
          char lfQuality, char lfPitchAndFamily, const char *lfFaceName))
@@ -938,14 +944,14 @@ SWELL_API_DEFINE(void, SetBkMode,(HDC ctx, int col))
 SWELL_API_DEFINE(int, GetGlyphIndicesW, (HDC ctx, wchar_t *buf, int len, unsigned short *indices, int flags))
 
 SWELL_API_DEFINE(void, RoundRect,(HDC ctx, int x, int y, int x2, int y2, int xrnd, int yrnd))
-SWELL_API_DEFINE(void, PolyPolyline,(HDC ctx, POINT *pts, DWORD *cnts, int nseg))
+SWELL_API_DEFINE(void, PolyPolyline,(HDC ctx, const POINT *pts, const DWORD *cnts, int nseg)) // not implemented on linux
 SWELL_API_DEFINE(BOOL, GetTextMetrics,(HDC ctx, TEXTMETRIC *tm))
 SWELL_API_DEFINE(int, GetTextFace,(HDC ctx, int nCount, LPTSTR lpFaceName))
 #ifdef SWELL_TARGET_OSX
 SWELL_API_DEFINE(void *, GetNSImageFromHICON,(HICON))
 #endif
 SWELL_API_DEFINE(BOOL, GetObject, (HICON icon, int bmsz, void *_bm))
-SWELL_API_DEFINE(HICON, CreateIconIndirect, (ICONINFO* iconinfo))
+SWELL_API_DEFINE(HICON, CreateIconIndirect, (const ICONINFO* iconinfo))
 SWELL_API_DEFINE(HICON, LoadNamedImage,(const char *name, bool alphaFromMask))
 SWELL_API_DEFINE(void, DrawImageInRect,(HDC ctx, HICON img, const RECT *r))
 SWELL_API_DEFINE(void, BitBlt,(HDC hdcOut, int x, int y, int w, int h, HDC hdcIn, int xin, int yin, int mode))
@@ -1079,6 +1085,7 @@ SWELL_API_DEFINE(int,AddFontResourceEx,(LPCTSTR str, DWORD fl, void *pdv))
 
 #ifdef SWELL_TARGET_OSX
 SWELL_API_DEFINE(void,SWELL_DisableAppNap,(int disable))
+SWELL_API_DEFINE(void,SWELL_DisableAppNapEx,(int disable, int flag)) // flag=0 for legacy, &1=control ssaver, &2=disable ssaver too
 SWELL_API_DEFINE(int,SWELL_GetOSXVersion,())
 #endif
 

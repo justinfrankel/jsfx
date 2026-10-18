@@ -68,6 +68,9 @@ struct HTREEITEM__;
 
 #ifdef SWELL_TARGET_OSX
 
+int SWELL_osx_dialog_scaling(HWND hwnd);
+#define SWELL_DLGSCALE_FACTOR (1.7/256.0)
+
 #if 0
   // at some point we should enable this and use it in most SWELL APIs that call Cocoa code...
   #define SWELL_BEGIN_TRY @try { 
@@ -235,6 +238,9 @@ typedef struct WindowPropRec
 -(void)mouseUp:(NSEvent *)theEvent;
 - (void)rightMouseUp:(NSEvent *)theEvent;
 - (void)highlightSelectionInClipRect:(NSRect)theClipRect;
+- (void)setFrame:(NSRect)r;
+- (NSRect)rectOfColumn:(NSInteger)column;
+- (NSRect)rectOfRow:(NSInteger) row;
 
 // data source
 -(NSInteger) outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item;
@@ -289,6 +295,7 @@ typedef struct WindowPropRec
   int m_fastClickMask;	
   NSColor *m_fgColor;
   NSMutableArray *m_selColors;
+  NSFont *m_nsFont; // font to use for cells (used by ListView_InsertColumn, etc), may be NULL for default
 
   // these are for the new yosemite mouse handling code
   int m_last_plainly_clicked_item, m_last_shift_clicked_item;
@@ -302,6 +309,8 @@ typedef struct WindowPropRec
 -(NSInteger)columnAtPoint:(NSPoint)pt;
 -(int)getColumnPos:(int)idx; // get current position of column that was originally at idx
 -(int)getColumnIdx:(int)pos; // get original index of column that is currently at position
+-(void)setFont:(NSFont *)font;
+-(void)setFrame:(NSRect)r;
 
 -(BOOL)accessibilityPerformShowMenu;
 @end
@@ -407,6 +416,8 @@ typedef struct WindowPropRec
   id m_access_cacheptrs[6];
   const char *m_classname;
 
+  int m_dlg_dpi; // latched dpi for this window, SWELL_osx_dialog_scaling() uses (0 unset, 256=1.7, etc)
+
 // only used if not SWELL_NO_METAL
   char m_use_metal; // 1=normal mode, 2=full pipeline (GetDC() etc support). -1 is for non-metal async layered mode. -2 for non-metal non-async layered
 
@@ -459,6 +470,7 @@ typedef struct WindowPropRec
 - (void) setEnabledSwellNoFocus;
 - (void) setEnabled:(BOOL)en;
 - (BOOL) isEnabled;
+- (BOOL) clipsToBounds;
 -(const char *)getSwellClass;
 
 // NSAccessibility
@@ -558,7 +570,7 @@ typedef struct WindowPropRec
 
 #ifndef SWELL_NO_METAL
 void swell_removeMetalDirty(SWELL_hwndChild *slf);
-void swell_updateAllMetalDirty(void);
+void swell_updateAllMetalDirty(HWND h=NULL);
 void swell_addMetalDirty(SWELL_hwndChild *slf, const RECT *r, bool isReleaseDC=false);
 HDC SWELL_CreateMetalDC(SWELL_hwndChild *);
 #endif
@@ -675,6 +687,7 @@ struct HGDIOBJ__
  
   // if using CoreText to draw text
   void *ct_FontRef;
+  float ct_realInternalLeading, ct_realAscender, ct_realDescender; // we calculate these once, CTFontGet*() are not reliable
 };
 
 struct HDC__ {
@@ -766,6 +779,13 @@ static WDL_STATICFUNC_UNUSED void NSRECT_TO_RECT(RECT *r, const NSRect &tr)
   r->top=(int)floor(tr.origin.y+0.5);
   r->bottom=(int)floor(tr.origin.y+tr.size.height+0.5);
 }
+static WDL_STATICFUNC_UNUSED LONG NSPOINT_TO_LONG(const NSPoint &pt)
+{
+  const int x = (int)floor(pt.x+0.5);
+  const int y = (int)floor(pt.y+0.5);
+  return MAKELONG(x&0xffff,y&0xffff);
+}
+
 #endif
 
 
@@ -778,7 +798,14 @@ SWELL_IMPLEMENT_GETOSXVERSION int SWELL_GetOSXVersion()
   {
     if (NSAppKitVersionNumber >= 1266.0)
     {
-      if (NSAppKitVersionNumber >= 2487.0)
+      if (NSAppKitVersionNumber >= 2600.0)
+      {
+        v = (int)(NSAppKitVersionNumber/100.0);
+        v = ((v/10) << 12) + ((v%10) << 8); // convert 26 to 0x2600
+      }
+      else if (NSAppKitVersionNumber >= 2500.0)
+        v = 0x1500;
+      else if (NSAppKitVersionNumber >= 2487.0)
         v = 0x1400;
       else if (NSAppKitVersionNumber >= 2299.0)
         v = 0x1300;
@@ -944,6 +971,7 @@ struct HGDIOBJ__
   int type;
   int additional_refcnt; // refcnt of 0 means one owner (if >0, additional owners)
 
+   // for freetype fonts, these will get lfHeight/lfWidth set (for glyph fallbacks)
   int color;
   int wid;
 
@@ -962,6 +990,9 @@ struct HDC__ {
 
   RECT dirty_rect; // in surface coordinates, used for GetWindowDC()/GetDC()/etc
   bool dirty_rect_valid;
+
+  LICE_IBitmap *surface_save; // swell-gdi-lice SWELL_PushClipRgn only supports one item
+  POINT surface_offs_save;
 #else
   void *ownedData; // for mem contexts, support a null rendering 
 #endif

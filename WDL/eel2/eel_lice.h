@@ -280,6 +280,7 @@ public:
     int last_fontflag;
 
     int use_fonth;
+    int actual_metrics[3]; // ascent, descent, internal leading
   }; 
   WDL_TypedBuf<gfxFontStruct> m_gfx_fonts;
   enum {
@@ -332,6 +333,7 @@ public:
 
   int setup_frame(HWND hwnd, RECT r, int _mouse_x=0, int _mouse_y=0, int has_dpi=0); // mouse_x/y used only if hwnd is NULL
   void finish_draw();
+  void finish_cap(); // called by finish_draw()
 
   void gfx_lineto(EEL_F xpos, EEL_F ypos, EEL_F aaflag);
   void gfx_rectto(EEL_F xpos, EEL_F ypos);
@@ -378,7 +380,7 @@ public:
   HCURSOR m_cursor;
   int m_cursor_resid;
 #ifdef EEL_LICE_LOADTHEMECURSOR
-  char m_cursor_name[128];
+  WDL_FastString m_cursor_name;
 #endif
 
 #ifndef EEL_LICE_STANDALONE_NOINITQUIT
@@ -392,6 +394,10 @@ public:
 
   int m_has_cap; // high 16 bits are current capture state, low 16 bits are temporary flags from mousedown
   bool m_has_had_getch; // set on first gfx_getchar(), makes mouse_cap updated with modifiers even when no mouse click is down
+  int m_cursor_hidden;
+  POINT m_cursor_lastpos; // cursor position (screen coordinates) set on setup_frame
+  POINT m_cursor_hidden_offs; // offset to adjust reported position by
+  POINT m_cursor_initialpos; // position when cursor was hidden
 
   WDL_PtrList<char> m_ddrop_files;
 };
@@ -414,9 +420,6 @@ eel_lice_state::eel_lice_state(NSEEL_VMCTX vm, void *ctx, int image_slots, int f
   memset(&m_last_undocked_r,0,sizeof(m_last_undocked_r));
 #endif
 
-#ifdef EEL_LICE_LOADTHEMECURSOR
-  m_cursor_name[0]=0;
-#endif
 #endif
   m_user_ctx=ctx;
   m_vmref= vm;
@@ -453,6 +456,10 @@ eel_lice_state::eel_lice_state(NSEEL_VMCTX vm, void *ctx, int image_slots, int f
 
   if (m_gfx_texth) *m_gfx_texth=8;
 
+  m_cursor_hidden = 0;
+  memset(&m_cursor_lastpos,0,sizeof(m_cursor_lastpos));
+  memset(&m_cursor_hidden_offs,0,sizeof(m_cursor_hidden_offs));
+  memset(&m_cursor_initialpos,0,sizeof(m_cursor_initialpos));
   m_has_cap=0;
   m_has_had_getch=false;
   m_last_menu_time = GetTickCount() - 100000;
@@ -751,6 +758,9 @@ static EEL_F NSEEL_CGEN_CALL _gfx_getfont(void *opaque, INT_PTR np, EEL_F **parm
       EEL_STRING_GET_FOR_WRITE(parms[0][0],&fs);
       if (fs) fs->Set(f->actual_fontname);
 #endif
+      if (np > 1) parms[1][0] = f->actual_metrics[0];
+      if (np > 2) parms[2][0] = f->actual_metrics[1];
+      if (np > 3) parms[3][0] = f->actual_metrics[2];
     }
     return idx;
   }
@@ -1226,7 +1236,11 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
       
       bool doCreate=false;
       int fontflag=0;
-      if (!s->font) s->actual_fontname[0]=0;
+      if (!s->font)
+      {
+        s->actual_fontname[0]=0;
+        memset(s->actual_metrics,0,sizeof(s->actual_metrics));
+      }
 
       {
         EEL_STRING_MUTEXLOCK_SCOPE
@@ -1271,6 +1285,7 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
       if (doCreate)
       {
         s->actual_fontname[0]=0;
+        memset(s->actual_metrics,0,sizeof(s->actual_metrics));
         if (!s->font) s->font=LICE_CreateFont();
         if (s->font)
         {
@@ -1319,6 +1334,10 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
                 else
 #endif
                   GetTextFace(hdc, sizeof(s->actual_fontname), s->actual_fontname);
+
+                s->actual_metrics[0] = tm.tmAscent;
+                s->actual_metrics[1] = tm.tmDescent;
+                s->actual_metrics[2] = tm.tmInternalLeading;
                 SelectObject(hdc,oldFont);
               }
             }
@@ -1556,7 +1575,7 @@ static int __drawTextWithFont(LICE_IBitmap *dest, const RECT *rect, LICE_IFont *
 #ifdef DYNAMIC_LICE
         (LICE_IBitmap_disabledAPI*)
 #endif
-        dest,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
+        dest,rect->left,rect->top,(flags & DT_NOCLIP)?0:(rect->right-rect->left),(flags & DT_NOCLIP)?0:(rect->bottom-rect->top));
 
     if (!measureOnly)
     {
@@ -1737,9 +1756,9 @@ EEL_F eel_lice_state::gfx_setcursor(void* opaque, EEL_F** parms, int nparms)
 #ifdef EEL_LICE_LOADTHEMECURSOR
   if (nparms > 1) p=EEL_STRING_GET_FOR_INDEX(parms[1][0], NULL);
 
-  if (strncmp(p?p:"",m_cursor_name,sizeof(m_cursor_name)-1))
+  if (strcmp(p?p:"",m_cursor_name.Get()))
   {
-    lstrcpyn(m_cursor_name, p?p:"", sizeof(m_cursor_name));
+    m_cursor_name.Set(p?p:"");
     chg = true;
   }
 #endif
@@ -1899,14 +1918,21 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y, i
   int use_h = r.bottom - r.top;
 
   POINT pt = { _mouse_x, _mouse_y };
+  GetCursorPos(&m_cursor_lastpos);
   if (hwnd)
   {
-    GetCursorPos(&pt);
+    pt = m_cursor_lastpos;
     ScreenToClient(hwnd,&pt);
   }
 
-  *m_mouse_x=pt.x-r.left;
-  *m_mouse_y=pt.y-r.top;
+  int curs_x = pt.x - r.left, curs_y = pt.y - r.top;
+  if (m_has_cap && m_cursor_hidden)
+  {
+    curs_x += m_cursor_hidden_offs.x;
+    curs_y += m_cursor_hidden_offs.y;
+  }
+  *m_mouse_x = curs_x;
+  *m_mouse_y = curs_y;
 
   if (has_dpi>0 && *m_gfx_ext_retina > 0.0)
   {
@@ -1988,7 +2014,7 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y, i
     if (GetAsyncKeyState(VK_CONTROL)&0x8000) vflags|=4;
     if (GetAsyncKeyState(VK_SHIFT)&0x8000) vflags|=8;
     if (GetAsyncKeyState(VK_MENU)&0x8000) vflags|=16;
-    if (GetAsyncKeyState(VK_LWIN)&0x8000) vflags|=32;
+    if ((GetAsyncKeyState(VK_LWIN)&0x8000) || (GetAsyncKeyState(VK_RWIN)&0x8000)) vflags|=32;
   }
   m_has_cap &= 0xf0000;
 
@@ -2005,8 +2031,55 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y, i
   return dr;
 }
 
+void eel_lice_state::finish_cap()
+{
+  if (m_has_cap &&
+      // todo allow_mouse_hiding or something (tablet mode etc)
+      m_mouse_cap &&
+      (((int)*m_mouse_cap)&65536))
+  {
+    if (!m_cursor_hidden)
+    {
+      m_cursor_initialpos = m_cursor_lastpos;
+      int v;
+      do m_cursor_hidden++; while ((v=ShowCursor(FALSE))>=0);
+      if (v < -3 && m_cursor_hidden>1)
+      {
+        m_cursor_hidden--;
+        ShowCursor(TRUE);
+      }
+    }
+    if (m_cursor_hidden)
+    {
+#ifdef _WIN32
+      CURSORINFO ci={sizeof(ci)};
+      GetCursorInfo(&ci);
+#endif
+      if (
+#ifdef _WIN32
+        !(ci.flags&2) &&
+#endif
+        SetCursorPos(m_cursor_initialpos.x,m_cursor_initialpos.y))
+      {
+        // repositioned, adjust m_cursor_hidden_offs
+        m_cursor_hidden_offs.x += m_cursor_lastpos.x - m_cursor_initialpos.x;
+        int dy = m_cursor_lastpos.y - m_cursor_initialpos.y;
+#ifdef __APPLE__
+        dy = -dy;
+#endif
+        m_cursor_hidden_offs.y += dy;
+      }
+    }
+  }
+  else if (m_cursor_hidden>0)
+  {
+    memset(&m_cursor_hidden_offs,0,sizeof(m_cursor_hidden_offs));
+    while (m_cursor_hidden>0) { m_cursor_hidden--; ShowCursor(TRUE); }
+  }
+}
 void eel_lice_state::finish_draw()
 {
+  finish_cap();
   if (hwnd_standalone && m_framebuffer_dirty) 
   {
 #ifdef __APPLE__
@@ -2088,10 +2161,10 @@ static EEL_F * NSEEL_CGEN_CALL _gfx_update(void *opaque, EEL_F *n)
 
 #ifdef _WIN32
       MSG msg;
-      while (PeekMessage(&msg,NULL,0,0,PM_REMOVE)) 
+      while (PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) 
       {
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageW(&msg);
       }
 #else
       void SWELL_RunEvents();
@@ -2176,6 +2249,16 @@ static EEL_F NSEEL_CGEN_CALL _gfx_getchar(void *opaque, INT_PTR np, EEL_F **plis
           plist[1][0] = (a2&0xffffff);
         }
         return a;
+      }
+      else if (ctx->m_kb_queue_valid > 0 && a >= 0x7500D800 && a <= 0x7500D800 + 0x3FF) // 'u' = 0x75
+      {
+        int a2 = ctx->m_kb_queue[ctx->m_kb_queue_pos & (qsize-1)];
+        if (a2 >= 0x7500DC00 && a2 <= 0x7500DC00 + 0x3FF) // surrogate pair
+        {
+          a = 0x75010000 + (((a&0xffff)-0xD800)<<10) + ((a2&0xffff) - 0xDC00);
+          ctx->m_kb_queue_pos++;
+          ctx->m_kb_queue_valid--;
+        }
       }
 #else
       if (a > 32 && a < 256 && np > 1)
@@ -2607,6 +2690,9 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 #endif
         ctx->m_kb_queue_valid=0;
         ctx->hwnd_standalone=hwnd;
+#if !defined(_WIN32) && !defined(__APPLE__)
+        SetProp(hwnd,"SWELL_IME_ENABLE",(HANDLE)(INT_PTR)1);
+#endif
       }
     return 0;
 #ifndef _WIN32
@@ -2842,7 +2928,7 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
           if (GetAsyncKeyState(VK_CONTROL)&0x8000) f|=4;
           if (GetAsyncKeyState(VK_SHIFT)&0x8000) f|=8;
           if (GetAsyncKeyState(VK_MENU)&0x8000) f|=16;
-          if (GetAsyncKeyState(VK_LWIN)&0x8000) f|=32;
+          if ((GetAsyncKeyState(VK_LWIN)&0x8000) || (GetAsyncKeyState(VK_RWIN)&0x8000)) f|=32;
 
           ctx->m_has_cap|=f;
           if (ctx->m_last_menu_cnt && (GetTickCount()-ctx->m_last_menu_time)>250) ctx->m_last_menu_cnt = 0;
@@ -3122,6 +3208,7 @@ static const char *eel_lice_function_reference =
     "\4" "16: Alt (Windows) or Option (macOS) key\n"
     "\4" "32: Windows (Windows) or Control (macOS) key\n"
     "\4" "64: middle mouse button\n"
+    "\4" "65536: if set by script during mouse capture, hides cursor and virtualizes mouse position\n"
   "\2"
   "\2\0"
 
@@ -3170,9 +3257,9 @@ static const char *eel_lice_function_reference =
     "\4flags&8: bottom justify\n"
     "\4flags&256: ignore right/bottom, otherwise text is clipped to (gfx_x, gfx_y, right, bottom)\0"
   "gfx_measurestr\t\"str\",&w,&h\tMeasures the drawing dimensions of a string with the current font (as set by gfx_setfont). \0"
-  "gfx_measurechar\tcharacter,&w,&h\tMeasures the drawing dimensions of a character with the current font (as set by gfx_setfont). \0"
+  "gfx_measurechar\tcodepoint,&w,&h\tMeasures the drawing dimensions of a character (for example, ascii code point 97 is 'a') with the current font (as set by gfx_setfont).\0"
   "gfx_setfont\tidx[,\"fontface\", sz, flags]\tCan select a font and optionally configure it. idx=0 for default bitmapped font, no configuration is possible for this font. idx=1..16 for a configurable font, specify fontface such as \"Arial\", sz of 8-100, and optionally specify flags, which is a multibyte character, which can include 'i' for italics, 'u' for underline, or 'b' for bold. These flags may or may not be supported depending on the font and OS. After calling gfx_setfont(), gfx_texth may be updated to reflect the new average line height.\0"
-  "gfx_getfont\t[#str]\tReturns current font index. If a string is passed, it will receive the actual font face used by this font, if available.\0"
+  "gfx_getfont\t[#str, ascent, descent, internal_leading]\tReturns current font index. If a string is passed, it will receive the actual font face used by this font, if available.\0"
   "gfx_printf\t\"format\"[, ...]\tFormats and draws a string at gfx_x, gfx_y, and updates gfx_x/gfx_y accordingly (the latter only if the formatted string contains newline). For more information on format strings, see sprintf()\0"
   "gfx_blurto\tx,y\tBlurs the region of the screen between gfx_x,gfx_y and x,y, and updates gfx_x,gfx_y to x,y.\0"
   "gfx_blit\tsource[, scale, rotation, srcx, srcy, srcw, srch, destx, desty, destw, desth, rotxoffs, rotyoffs]\t"

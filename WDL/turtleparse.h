@@ -52,7 +52,7 @@ public:
     }
     else if (_list)
     {
-      value = (char *)new WDL_PtrList<wdl_turtle_pair>;
+      value = (char *)new WDL_PtrList<wdl_turtle_pair>(64);
       mode = _list == 2 ? MODE_COLLECTION : MODE_LIST;
     }
     else
@@ -71,7 +71,6 @@ public:
     if (list) { list->Empty(true); delete list; }
     else free(value);
   }
-  static void deletePair(wdl_turtle_pair *p) { delete p; }
 
   const char *get_verb() { return verb; } // NULL indicates "a"
   const char *get_resource() { return mode == MODE_RESOURCE ? value : NULL; } // object is a uri <http://foo>, returned as "http://foo", and _not_ URL-decoded (if resolving a path, caller should convert %20 etc)
@@ -85,8 +84,8 @@ class wdl_turtle_parser {
 public:
 
   wdl_turtle_parser() :
-     objects(true, wdl_turtle_pair::deletePair),
-     m_prefixes(true, WDL_StringKeyedArray<char *>::freecharptr),
+     objects(true, wdl_deletefunc),
+     m_prefixes(true, wdl_freefunc),
      m_error_ptr(NULL), m_error_msg(NULL) { }
   ~wdl_turtle_parser() { }
 
